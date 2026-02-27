@@ -173,6 +173,7 @@ class Flare22SliceDataset(Dataset):
         pairs: Sequence[Tuple[Path, Path]],
         image_size: int = 256,
         use_random_slice: bool = True,
+        samples_per_volume: int = 1,
         foreground_sample_prob: float = 0.7,
         min_foreground_pixels: int = 20,
         enable_augment: bool = False,
@@ -182,6 +183,7 @@ class Flare22SliceDataset(Dataset):
         self.pairs = list(pairs)
         self.image_size = int(image_size)
         self.use_random_slice = bool(use_random_slice)
+        self.samples_per_volume = max(1, int(samples_per_volume))
         self.foreground_sample_prob = float(np.clip(foreground_sample_prob, 0.0, 1.0))
         self.min_foreground_pixels = int(min_foreground_pixels)
         self.enable_augment = bool(enable_augment)
@@ -203,17 +205,19 @@ class Flare22SliceDataset(Dataset):
         return stats
 
     def __len__(self) -> int:
-        return len(self.pairs)
+        return len(self.pairs) * self.samples_per_volume
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        image_path, label_path = self.pairs[idx]
+        pair_idx = int(idx) // self.samples_per_volume
+        pair_idx = min(max(pair_idx, 0), len(self.pairs) - 1)
+        image_path, label_path = self.pairs[pair_idx]
         image = _load_image(image_path)
         label = _load_image(label_path)
         label = np.rint(label).astype(np.int64, copy=False)
 
         if image.ndim == 3:
             if self.use_random_slice:
-                total_slices, fg_slices = self._slice_stats[idx]
+                total_slices, fg_slices = self._slice_stats[pair_idx]
                 if (
                     fg_slices.size > 0
                     and np.random.rand() < self.foreground_sample_prob
@@ -271,6 +275,7 @@ def build_flare22_dataloaders(
     foreground_sample_prob: float = 0.7,
     min_foreground_pixels: int = 20,
     train_augment: bool = True,
+    train_slices_per_volume: int = 1,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Build FLARE22 train/test/val DataLoaders (default 7:2:1).
@@ -318,6 +323,7 @@ def build_flare22_dataloaders(
         tr_pairs,
         image_size=image_size,
         use_random_slice=True,
+        samples_per_volume=max(1, int(train_slices_per_volume)),
         foreground_sample_prob=foreground_sample_prob,
         min_foreground_pixels=min_foreground_pixels,
         enable_augment=train_augment,
@@ -326,6 +332,7 @@ def build_flare22_dataloaders(
         val_pairs,
         image_size=image_size,
         use_random_slice=False,
+        samples_per_volume=1,
         foreground_sample_prob=0.0,
         min_foreground_pixels=min_foreground_pixels,
         enable_augment=False,
@@ -334,6 +341,7 @@ def build_flare22_dataloaders(
         test_pairs,
         image_size=image_size,
         use_random_slice=False,
+        samples_per_volume=1,
         foreground_sample_prob=0.0,
         min_foreground_pixels=min_foreground_pixels,
         enable_augment=False,

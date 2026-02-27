@@ -80,6 +80,12 @@ def parse_args():
     parser.add_argument("--lr_min_ratio", type=float, default=0.05)
     parser.add_argument("--foreground_sample_prob", type=float, default=0.8)
     parser.add_argument("--min_foreground_pixels", type=int, default=30)
+    parser.add_argument(
+        "--train_slices_per_volume",
+        type=int,
+        default=4,
+        help="How many random 2D slices to sample per volume in each training epoch.",
+    )
     parser.add_argument("--no_train_augment", action="store_true")
     parser.add_argument("--cons_mode", type=str, default="mse", choices=["mse", "kl"])
     parser.add_argument("--teacher_update", type=str, default="ema", choices=["ema", "joint", "frozen"])
@@ -158,6 +164,14 @@ def _checkpoint_payload(model, optimizer, args, step: int, epoch: int, best_val_
     }
 
 
+def _effective_bottom_sup_lambda(args) -> float:
+    """
+    Bottom-branch supervision only contributes gradients in joint mode.
+    For ema/frozen teacher, keep it at 0 to avoid misleading loss accounting.
+    """
+    return float(args.lambda_bottom_sup) if args.teacher_update == "joint" else 0.0
+
+
 @torch.no_grad()
 def evaluate(model, loader, device, args):
     model.eval()
@@ -186,7 +200,7 @@ def evaluate(model, loader, device, args):
             gt_labels=labels,
             lambda_cons=args.lambda_cons,
             lambda_pseudo=args.lambda_pseudo,
-            lambda_bottom_sup=args.lambda_bottom_sup,
+            lambda_bottom_sup=_effective_bottom_sup_lambda(args),
             cons_mode=args.cons_mode,
             pseudo_conf_thresh=args.pseudo_conf_thresh,
         )
@@ -316,6 +330,11 @@ def main():
     if args.teacher_update in ["ema", "frozen"]:
         for p in model.teacher.parameters():
             p.requires_grad = False
+    if args.teacher_update in ["ema", "frozen"] and args.lambda_bottom_sup > 0:
+        print(
+            f"teacher_update={args.teacher_update}: forcing effective "
+            f"lambda_bottom_sup=0.0 (configured={args.lambda_bottom_sup:.4f})."
+        )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
@@ -331,12 +350,14 @@ def main():
             foreground_sample_prob=args.foreground_sample_prob,
             min_foreground_pixels=args.min_foreground_pixels,
             train_augment=not args.no_train_augment,
+            train_slices_per_volume=args.train_slices_per_volume,
         )
         print(f"Using FLARE22 dataset from: {args.data_root}")
         print(
             "Split sizes (train/test/val): "
             f"{len(train_loader.dataset)}/{len(test_loader.dataset)}/{len(val_loader.dataset)}"
         )
+        print(f"Train samples_per_volume={max(1, int(args.train_slices_per_volume))}")
     else:
         dummy_epochs = args.epochs if args.epochs is not None else 5
         dummy_steps = args.steps if args.steps is not None else dummy_epochs * 32
@@ -428,7 +449,7 @@ def main():
                 gt_labels=labels,
                 lambda_cons=lambda_cons_now,
                 lambda_pseudo=lambda_pseudo_now,
-                lambda_bottom_sup=args.lambda_bottom_sup,
+                lambda_bottom_sup=_effective_bottom_sup_lambda(args),
                 cons_mode=args.cons_mode,
                 pseudo_conf_thresh=args.pseudo_conf_thresh,
             )
@@ -452,6 +473,7 @@ def main():
                 f"cons={losses['loss_cons'].item():.4f} "
                 f"pseudo={losses['loss_pseudo'].item():.4f} "
                 f"sup_bottom={losses['loss_sup_bottom'].item():.4f} "
+                f"bottom_w={_effective_bottom_sup_lambda(args):.3f} "
                 f"pseudo_keep={losses['pseudo_keep_ratio'].item():.3f} "
                 f"warmup={warmup_ratio:.3f}"
             )
