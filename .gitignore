@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+*.swp
+.DS_Store
+
+# Training artifacts
+outputs/
+*.pt
+*.pth
+*.ckpt
+*.log
+
+# Local datasets
+datasets/
+/hy-tmp/datasets/
+
+# IDE
+.idea/
+.vscode/

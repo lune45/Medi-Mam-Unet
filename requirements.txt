@@ -1,0 +1,8 @@
+torch
+numpy
+imageio
+nibabel
+scipy
+# optional: real mamba backend
+# mamba-ssm
+
