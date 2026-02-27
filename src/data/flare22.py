@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 
 
 SUPPORTED_EXTENSIONS = (".nii.gz", ".nii", ".png")
+LEFT_RIGHT_SWAP_LABELS = ((2, 12), (7, 8))
 
 
 def _strip_known_suffix(name: str) -> str:
@@ -42,7 +43,10 @@ def _load_nii_as_numpy(path: Path) -> np.ndarray:
         raise ImportError(
             "Reading .nii/.nii.gz requires nibabel. Install it with: python -m pip install nibabel"
         ) from exc
-    return np.asarray(nib.load(str(path)).get_fdata())
+    nii = nib.load(str(path))
+    # Normalize orientation to canonical axes to reduce left-right ambiguity.
+    nii = nib.as_closest_canonical(nii)
+    return np.asarray(nii.get_fdata())
 
 
 def _load_image(path: Path) -> np.ndarray:
@@ -117,10 +121,12 @@ def _augment_image_label(image_2d: np.ndarray, label_2d: np.ndarray) -> Tuple[np
     if np.random.rand() < 0.5:
         image_2d = np.flip(image_2d, axis=1)
         label_2d = np.flip(label_2d, axis=1)
-    if np.random.rand() < 0.5:
-        k = int(np.random.randint(0, 4))
-        image_2d = np.rot90(image_2d, k=k, axes=(0, 1))
-        label_2d = np.rot90(label_2d, k=k, axes=(0, 1))
+        # Horizontal flip changes left/right anatomy. Swap left-right labels accordingly.
+        swapped = label_2d.copy()
+        for right_id, left_id in LEFT_RIGHT_SWAP_LABELS:
+            swapped[label_2d == right_id] = left_id
+            swapped[label_2d == left_id] = right_id
+        label_2d = swapped
 
     if np.random.rand() < 0.7:
         scale = float(np.random.uniform(0.9, 1.1))
