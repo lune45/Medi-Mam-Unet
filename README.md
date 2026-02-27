@@ -1,6 +1,8 @@
 # Visual Mamba Teacher-Student
 
 PyTorch research codebase for abdominal organ segmentation with a Teacher-Student setup and optional Mamba blocks.
+<img width="1064" height="580" alt="image" src="https://github.com/user-attachments/assets/cca97db7-7045-4102-98b0-b6f92ea6b2dd" />
+
 
 ## Highlights
 
